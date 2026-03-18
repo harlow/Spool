@@ -7,7 +7,7 @@
     <key>CFBundleExecutable</key>
     <string>Spool</string>
     <key>CFBundleIdentifier</key>
-    <string>com.yourname.spool</string>
+    <string>com.fieldgrid.spool</string>
     <key>CFBundleIconFile</key>
     <string>AppIcon</string>
     <key>CFBundleInfoDictionaryVersion</key>

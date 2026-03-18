@@ -4,7 +4,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 ROOT_DIR="$(pwd)"
 APP_NAME="Spool"
-BUNDLE_ID="com.yourname.spool"
+BUNDLE_ID="com.fieldgrid.spool"
 
 echo "=== Building $APP_NAME ==="
 
