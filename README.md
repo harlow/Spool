@@ -4,6 +4,8 @@ Spool is a macOS menu bar app for recording conversations, generating transcript
 
 It is designed for people who want a lightweight native app instead of a meeting bot, cloud dashboard, or locked-in note system.
 
+If you want to build your own version or understand the full product and engineering plan, start with [SPEC.md](./SPEC.md).
+
 ## What It Does
 
 - Lives in the macOS menu bar with no Dock icon
