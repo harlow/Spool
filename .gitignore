@@ -2,3 +2,5 @@
 .build/
 dist/
 DerivedData/
+.env
+.env.local

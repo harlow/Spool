@@ -3,10 +3,12 @@ import SwiftUI
 struct SettingsView: View {
     @Bindable var settings: AppSettings
     @Bindable var recordingController: RecordingController
+    @Bindable var calendarService: GoogleCalendarService
 
-    init(settings: AppSettings, recordingController: RecordingController) {
+    init(settings: AppSettings, recordingController: RecordingController, calendarService: GoogleCalendarService) {
         self.settings = settings
         self.recordingController = recordingController
+        self.calendarService = calendarService
         settings.loadSummaryAPIKeyIfNeeded()
     }
 
@@ -44,6 +46,59 @@ struct SettingsView: View {
                     .foregroundStyle(.secondary)
             }
 
+            Section("Calendar") {
+                Toggle("Show Google Calendar agenda", isOn: $settings.calendarIntegrationEnabled)
+                    .onChange(of: settings.calendarIntegrationEnabled) { _, _ in
+                        Task { await calendarService.refreshStatus(force: true) }
+                    }
+
+                Text(calendarService.integrationStatus.summaryText)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                if let account = calendarService.connectedAccount {
+                    Text("Connected as \(account.email)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                if let lastError = calendarService.lastNonBlockingError, !lastError.isEmpty {
+                    Text(lastError)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                if let lastBlockingError = calendarService.lastBlockingError, !lastBlockingError.isEmpty {
+                    Text(lastBlockingError)
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                }
+
+                HStack {
+                    Button("Connect Google") {
+                        calendarService.beginSignIn()
+                    }
+                    Button("Refresh Calendars") {
+                        Task { await calendarService.refreshCalendars(force: true) }
+                    }
+                    Button("Sign Out") {
+                        calendarService.signOut()
+                    }
+                }
+
+                Picker("Calendar", selection: $settings.selectedGoogleCalendarID) {
+                    Text("Select a calendar").tag("")
+                    ForEach(calendarService.availableCalendars) { item in
+                        Text(item.name + (item.isPrimary ? " (Primary)" : "")).tag(item.id)
+                    }
+                }
+                .disabled(calendarService.availableCalendars.isEmpty || !settings.calendarIntegrationEnabled)
+                .onChange(of: settings.selectedGoogleCalendarID) { _, newValue in
+                    guard !newValue.isEmpty else { return }
+                    calendarService.selectCalendar(id: newValue)
+                }
+            }
+
             Section("Shortcuts") {
                 Text("Global shortcuts are temporarily disabled.")
                 Text("The app does not currently register a working hotkey, so no shortcut is shown in the menu.")
@@ -61,8 +116,11 @@ struct SettingsView: View {
                 Text(recordingController.statusLine ?? "Idle")
             }
         }
+        .task {
+            await calendarService.refreshStatus(force: false)
+        }
         .formStyle(.grouped)
         .padding(20)
-        .frame(minWidth: 560, minHeight: 480)
+        .frame(minWidth: 560, minHeight: 560)
     }
 }

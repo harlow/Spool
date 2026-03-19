@@ -10,6 +10,7 @@ final class RecordingController {
     private let transcriptStore = TranscriptStore()
     private let transcriptionEngine = TranscriptionEngine()
     private let summaryService: OpenAISummaryService
+    private let calendarService: GoogleCalendarService
     var onSetupRequired: (() -> Void)?
 
     var state: RecordingState = .idle
@@ -18,10 +19,11 @@ final class RecordingController {
     var errorMessage: String?
     var blockingIssueMessage: String?
 
-    init(settings: AppSettings) {
+    init(settings: AppSettings, calendarService: GoogleCalendarService) {
         self.settings = settings
         self.sessionStorage = SessionStorage(settings: settings)
         self.summaryService = OpenAISummaryService(settings: settings)
+        self.calendarService = calendarService
         self.state = settings.needsOnboarding ? .idle : .ready
 
         transcriptStore.onAppend = { [weak self] utterance in
@@ -65,12 +67,10 @@ final class RecordingController {
         case .stopping, .finalizingTranscript, .summarizing:
             baseTitle = "Processing..."
         default:
-            if settings.outputRootPath.isEmpty || settings.isSummaryAPIKeyMissing {
+            if settings.outputRootPath.isEmpty {
                 baseTitle = "Open Settings"
-            } else if blockingIssueMessage != nil {
-                baseTitle = "Start Recording"
             } else {
-                baseTitle = "Start Recording"
+                baseTitle = "Quick Recording"
             }
         }
 
@@ -80,12 +80,11 @@ final class RecordingController {
     var statusLine: String? {
         switch state {
         case .idle:
-            return settings.needsOnboarding ? "Setup required" : blockingIssueMessage
+            return blockingIssueMessage ?? (settings.needsOnboarding ? "Setup required" : nil)
         case .ready:
-            return blockingIssueMessage ?? "Ready"
+            return blockingIssueMessage
         case .recording:
-            guard let session = currentSession else { return "Recording" }
-            return "Recording \(elapsedString(since: session.startedAt))"
+            return "Recording"
         case .stopping:
             return "Stopping..."
         case .finalizingTranscript:
@@ -101,11 +100,6 @@ final class RecordingController {
         }
     }
 
-    var currentSessionPathLine: String? {
-        guard let folder = currentSession?.paths.folderURL.path else { return nil }
-        return folder
-    }
-
     func performPrimaryAction() async {
         switch state {
         case .recording:
@@ -113,11 +107,11 @@ final class RecordingController {
         case .stopping, .finalizingTranscript, .summarizing:
             break
         default:
-            if settings.outputRootPath.isEmpty || settings.isSummaryAPIKeyMissing {
+            if settings.outputRootPath.isEmpty {
                 onSetupRequired?()
                 return
             }
-            await startRecording()
+            _ = await startPlainRecording()
         }
     }
 
@@ -141,14 +135,44 @@ final class RecordingController {
         refreshStartupState()
     }
 
-    func startRecording() async {
+    var canStartNewRecording: Bool {
+        switch state {
+        case .idle, .ready, .completed, .failed:
+            return true
+        case .recording, .stopping, .finalizingTranscript, .summarizing, .checkingPermissions:
+            return false
+        }
+    }
+
+    func startPlainRecording() async -> Bool {
+        await startRecording(callContext: nil)
+    }
+
+    func startRecording(for event: CalendarAgendaEvent) async -> Bool {
+        await startRecording(callContext: event.makeCallContext())
+    }
+
+    @discardableResult
+    func startRecording(callContext: CallContext?) async -> Bool {
         errorMessage = nil
+        settings.loadSummaryAPIKeyIfNeeded()
 
         guard !settings.needsOnboarding else {
             state = .failed
             errorMessage = "Finish setup before starting a recording."
             onSetupRequired?()
-            return
+            return false
+        }
+
+        guard !settings.isSummaryAPIKeyMissing else {
+            state = .failed
+            errorMessage = "Add your OpenAI API key in Settings."
+            onSetupRequired?()
+            return false
+        }
+
+        guard canStartNewRecording else {
+            return false
         }
 
         state = .checkingPermissions
@@ -158,13 +182,13 @@ final class RecordingController {
             state = .idle
             errorMessage = permissionMessage
             sessionStorage.appendLog("Permission/startup block: \(permissionMessage)", to: currentSession)
-            return
+            return false
         }
 
         do {
             blockingIssueMessage = nil
             transcriptStore.clear()
-            let descriptor = try sessionStorage.createSession(contextHint: nil)
+            let descriptor = try sessionStorage.createSession(callContext: callContext)
             currentSession = descriptor
             await transcriptionEngine.start(locale: Locale(identifier: settings.transcriptionLocale))
             if let engineError = transcriptionEngine.lastError, !transcriptionEngine.isRunning {
@@ -172,11 +196,13 @@ final class RecordingController {
                 throw NSError(domain: "Spool", code: 1, userInfo: [NSLocalizedDescriptionKey: engineError])
             }
             state = .recording
+            return true
         } catch {
             currentSession = nil
             blockingIssueMessage = shortErrorMessage(error.localizedDescription)
             state = .idle
             errorMessage = error.localizedDescription
+            return false
         }
     }
 
@@ -226,19 +252,6 @@ final class RecordingController {
         guard let url else { return }
         NSWorkspace.shared.activateFileViewerSelecting([url])
     }
-
-    private func elapsedString(since date: Date) -> String {
-        let components = Calendar.current.dateComponents([.hour, .minute, .second], from: date, to: Date())
-        let hours = components.hour ?? 0
-        let minutes = components.minute ?? 0
-        let seconds = components.second ?? 0
-
-        if hours > 0 {
-            return String(format: "%d:%02d:%02d", hours, minutes, seconds)
-        }
-        return String(format: "%02d:%02d", minutes, seconds)
-    }
-
     private func shortErrorMessage(_ message: String) -> String {
         let collapsed = message.replacingOccurrences(of: "\n", with: " ").trimmingCharacters(in: .whitespacesAndNewlines)
         if collapsed.count <= 110 {
