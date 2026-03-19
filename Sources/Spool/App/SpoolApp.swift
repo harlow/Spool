@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import UserNotifications
 
 @main
 struct SpoolApp: App {
@@ -20,13 +21,17 @@ struct SpoolApp: App {
 final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         let model = AppModel.shared
-        NSApp.setActivationPolicy(.accessory)
+        NSApp.setActivationPolicy(.regular)
+        NSApp.activate(ignoringOtherApps: true)
+        model.settings.preloadSecretsForLaunch()
         model.appShell.start()
         model.recordingController.refreshStartupState()
         Task { @MainActor in
             await model.recordingController.warmUpPermissionsOnLaunch()
-            if model.settings.isSummaryAPIKeyMissing || model.settings.outputRootPath.isEmpty {
+            if model.settings.outputRootPath.isEmpty {
                 model.windowCoordinator.showSettings()
+            } else {
+                NSApp.setActivationPolicy(.accessory)
             }
         }
     }
