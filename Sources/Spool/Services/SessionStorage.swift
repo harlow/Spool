@@ -9,13 +9,13 @@ final class SessionStorage {
         self.settings = settings
     }
 
-    func createSession(contextHint: String?) throws -> SessionDescriptor {
+    func createSession(callContext: CallContext?) throws -> SessionDescriptor {
         guard let root = settings.outputRootURL else {
             throw SessionStorageError.missingOutputRoot
         }
 
         let now = Date()
-        let title = SessionNamer.makeTitle(from: contextHint)
+        let title = SessionNamer.makeTitle(from: callContext?.eventTitle)
         let slug = SessionNamer.makeSlug(from: title)
         let folderURL = root
             .appending(path: SessionNamer.sessionFolderName(from: now, slug: slug), directoryHint: .isDirectory)
@@ -38,6 +38,7 @@ final class SessionStorage {
             startedAt: now,
             title: title,
             slug: slug,
+            callContext: callContext,
             paths: paths
         )
 
@@ -50,6 +51,7 @@ final class SessionStorage {
             summaryProvider: settings.summaryProvider.rawValue,
             summaryModel: settings.summaryModel,
             transcriptionLocale: settings.transcriptionLocale,
+            callContext: descriptor.callContext,
             artifacts: SessionArtifacts(
                 eventsJSONL: paths.eventsURL.lastPathComponent,
                 transcriptRaw: paths.rawTranscriptURL.lastPathComponent,
@@ -84,7 +86,12 @@ final class SessionStorage {
     }
 
     func finalizeTranscript(for descriptor: SessionDescriptor, utterances: [Utterance]) throws -> String {
-        let transcript = Self.makeTranscriptText(title: descriptor.title, startedAt: descriptor.startedAt, utterances: utterances)
+        let transcript = Self.makeTranscriptText(
+            title: descriptor.title,
+            startedAt: descriptor.startedAt,
+            callContext: descriptor.callContext,
+            utterances: utterances
+        )
         try transcript.write(to: descriptor.paths.transcriptURL, atomically: true, encoding: .utf8)
         return transcript
     }
@@ -134,6 +141,7 @@ final class SessionStorage {
 
         try updateSessionMetadata(at: updatedPaths.sessionURL) { metadata in
             metadata.title = normalizedTitle
+            metadata.callContext = updatedDescriptor.callContext
             metadata.artifacts.summaryMarkdown = updatedPaths.summaryURL.lastPathComponent
         }
 
@@ -142,6 +150,9 @@ final class SessionStorage {
 
     private func writeInitialArtifacts(for descriptor: SessionDescriptor) throws {
         try appendLine(encoded: SessionBoundaryEvent(type: "session_started", timestamp: descriptor.startedAt), to: descriptor.paths.eventsURL)
+        if let callContext = descriptor.callContext {
+            try appendLine(encoded: SessionCallContextEvent(type: "calendar_context", timestamp: descriptor.startedAt, callContext: callContext), to: descriptor.paths.eventsURL)
+        }
         try "".write(to: descriptor.paths.rawTranscriptURL, atomically: true, encoding: .utf8)
         try "".write(to: descriptor.paths.transcriptURL, atomically: true, encoding: .utf8)
         try "".write(to: descriptor.paths.logsURL, atomically: true, encoding: .utf8)
@@ -179,13 +190,22 @@ final class SessionStorage {
         }
     }
 
-    private static func makeTranscriptText(title: String, startedAt: Date, utterances: [Utterance]) -> String {
-        let header = """
-        Spool
-        Title: \(title)
-        Date: \(dateFormatter.string(from: startedAt))
+    private static func makeTranscriptText(title: String, startedAt: Date, callContext: CallContext?, utterances: [Utterance]) -> String {
+        var headerLines = [
+            "Spool",
+            "Title: \(title)",
+            "Date: \(dateFormatter.string(from: startedAt))"
+        ]
 
-        """
+        if let callContext {
+            headerLines.append("Calendar Event: \(callContext.eventTitle)")
+            headerLines.append("Calendar: \(callContext.calendarName)")
+            if !callContext.attendees.isEmpty {
+                headerLines.append("Attendees: \(callContext.attendees.map(\.label).joined(separator: ", "))")
+            }
+        }
+
+        let header = headerLines.joined(separator: "\n") + "\n\n"
 
         let body = utterances
             .map { "\($0.speaker.displayName): \($0.text)" }
@@ -211,6 +231,12 @@ final class SessionStorage {
 private struct SessionBoundaryEvent: Encodable {
     let type: String
     let timestamp: Date
+}
+
+private struct SessionCallContextEvent: Encodable {
+    let type: String
+    let timestamp: Date
+    let callContext: CallContext
 }
 
 private struct UtteranceEvent: Encodable {

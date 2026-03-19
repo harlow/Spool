@@ -45,7 +45,11 @@ final class OpenAISummaryService {
                 ),
                 .init(
                     role: "user",
-                    text: Self.userPrompt(transcript: transcript, startedAt: descriptor.startedAt)
+                    text: Self.userPrompt(
+                        transcript: transcript,
+                        startedAt: descriptor.startedAt,
+                        callContext: descriptor.callContext
+                    )
                 )
             ],
             reasoningEffort: "minimal"
@@ -99,15 +103,25 @@ final class OpenAISummaryService {
     - Notable Quotes
     """
 
-    private static func userPrompt(transcript: String, startedAt: Date) -> String {
-        """
-        Create a post-call summary for this transcript.
+    private static func userPrompt(transcript: String, startedAt: Date, callContext: CallContext?) -> String {
+        var lines = [
+            "Create a post-call summary for this transcript.",
+            "",
+            "Session started at: \(startedAt.ISO8601Format())"
+        ]
 
-        Session started at: \(startedAt.ISO8601Format())
+        if let callContext {
+            lines.append("Calendar event title: \(callContext.eventTitle)")
+            lines.append("Calendar name: \(callContext.calendarName)")
+            if !callContext.attendees.isEmpty {
+                lines.append("Calendar attendees: \(callContext.attendees.map(\.label).joined(separator: ", "))")
+            }
+        }
 
-        Transcript:
-        \(transcript)
-        """
+        lines.append("")
+        lines.append("Transcript:")
+        lines.append(transcript)
+        return lines.joined(separator: "\n")
     }
 
     private static func extractTitle(from markdown: String) -> String? {

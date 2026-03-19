@@ -53,6 +53,7 @@ struct SessionDescriptor: Codable {
     let startedAt: Date
     var title: String
     var slug: String
+    var callContext: CallContext?
     var paths: SessionPaths
 }
 
@@ -65,6 +66,7 @@ struct SessionMetadata: Codable {
     let summaryProvider: String
     let summaryModel: String
     let transcriptionLocale: String
+    var callContext: CallContext?
     var artifacts: SessionArtifacts
 }
 
