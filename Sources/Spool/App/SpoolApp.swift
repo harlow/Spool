@@ -24,7 +24,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
         model.settings.preloadSecretsForLaunch()
+        UNUserNotificationCenter.current().delegate = model.meetingReminderService
         model.appShell.start()
+        model.meetingReminderService.start()
         model.recordingController.refreshStartupState()
         Task { @MainActor in
             await model.recordingController.warmUpPermissionsOnLaunch()

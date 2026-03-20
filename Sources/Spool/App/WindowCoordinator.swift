@@ -6,13 +6,20 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
     private let settings: AppSettings
     private let recordingController: RecordingController
     private let calendarService: GoogleCalendarService
+    private let meetingReminderService: MeetingReminderService
 
     private var settingsWindow: NSWindow?
 
-    init(settings: AppSettings, recordingController: RecordingController, calendarService: GoogleCalendarService) {
+    init(
+        settings: AppSettings,
+        recordingController: RecordingController,
+        calendarService: GoogleCalendarService,
+        meetingReminderService: MeetingReminderService
+    ) {
         self.settings = settings
         self.recordingController = recordingController
         self.calendarService = calendarService
+        self.meetingReminderService = meetingReminderService
         super.init()
     }
 
@@ -22,7 +29,8 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
             content: SettingsView(
                 settings: settings,
                 recordingController: recordingController,
-                calendarService: calendarService
+                calendarService: calendarService,
+                meetingReminderService: meetingReminderService
             )
         )
         settingsWindow = window

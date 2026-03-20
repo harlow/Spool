@@ -25,7 +25,8 @@ final class AppModel {
         let windowCoordinator = WindowCoordinator(
             settings: settings,
             recordingController: recordingController,
-            calendarService: calendarService
+            calendarService: calendarService,
+            meetingReminderService: meetingReminderService
         )
         let appShell = AppShell(
             settings: settings,

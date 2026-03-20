@@ -1,7 +1,9 @@
 import AppKit
 import Foundation
+import Observation
 @preconcurrency import UserNotifications
 
+@Observable
 @MainActor
 final class MeetingReminderService: NSObject, UNUserNotificationCenterDelegate {
     private let settings: AppSettings
@@ -10,14 +12,35 @@ final class MeetingReminderService: NSObject, UNUserNotificationCenterDelegate {
     private let center = UNUserNotificationCenter.current()
     private var timer: Timer?
     private var notifiedEventIDs: Set<String> = []
-    private(set) var notificationsAuthorized = false
 
-    private let leadTime: TimeInterval = 5 * 60
+    var notificationsAuthorized = false
+
+    private let leadTime: TimeInterval = 2 * 60
 
     init(settings: AppSettings, calendarService: GoogleCalendarService, recordingController: RecordingController) {
         self.settings = settings
         self.calendarService = calendarService
         self.recordingController = recordingController
+    }
+
+    var notificationAccessLabel: String {
+        notificationsAuthorized ? "Allowed" : "Not allowed"
+    }
+
+    var statusLine: String {
+        if !settings.calendarIntegrationEnabled {
+            return "Enable Google Calendar integration to schedule reminders."
+        }
+
+        if !notificationsAuthorized {
+            return "Notifications are not authorized for Spool."
+        }
+
+        guard let event = nextImminentEvent() else {
+            return "No join reminders due in the next two minutes."
+        }
+
+        return "Next reminder: \(event.title) at \(Self.timeText(for: event.startAt))"
     }
 
     func start() {
@@ -34,6 +57,11 @@ final class MeetingReminderService: NSObject, UNUserNotificationCenterDelegate {
         Task { @MainActor in
             await refreshAndNotifyIfNeeded(forceAgendaRefresh: true)
         }
+    }
+
+    func refreshNow() async {
+        await refreshAuthorizationStatus()
+        await refreshAndNotifyIfNeeded(forceAgendaRefresh: true)
     }
 
     func refreshAndNotifyIfNeeded(forceAgendaRefresh: Bool = false) async {
@@ -69,6 +97,7 @@ final class MeetingReminderService: NSObject, UNUserNotificationCenterDelegate {
         let cutoff = now.addingTimeInterval(leadTime)
         return calendarService.agendaSnapshot?.allEvents
             .filter { event in
+                event.primaryURL != nil &&
                 event.startAt > now &&
                 event.startAt <= cutoff &&
                 !self.notifiedEventIDs.contains(event.id)
@@ -90,7 +119,7 @@ final class MeetingReminderService: NSObject, UNUserNotificationCenterDelegate {
     private func shouldForceUpcomingAgendaRefresh(now: Date = Date()) -> Bool {
         guard let snapshot = calendarService.agendaSnapshot else { return true }
         guard let nextEvent = snapshot.allEvents
-            .filter({ $0.startAt > now })
+            .filter({ $0.startAt > now && $0.primaryURL != nil })
             .sorted(by: { $0.startAt < $1.startAt })
             .first else {
             return false
@@ -102,7 +131,7 @@ final class MeetingReminderService: NSObject, UNUserNotificationCenterDelegate {
     private func deliverNotification(for event: CalendarAgendaEvent) {
         let content = UNMutableNotificationContent()
         content.title = event.title
-        content.body = "\(Self.timeRangeText(for: event))\nJoin Meeting & Record with Spool"
+        content.body = "\(Self.timeRangeText(for: event))\nJoin Meeting & record in Spool"
         content.sound = .default
         content.categoryIdentifier = Self.categoryIdentifier
         content.userInfo = Self.makeUserInfo(for: event)
@@ -152,15 +181,19 @@ final class MeetingReminderService: NSObject, UNUserNotificationCenterDelegate {
         "meeting-reminder-\(eventID)"
     }
 
+    private static func timeText(for date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.timeStyle = .short
+        formatter.dateStyle = .none
+        return formatter.string(from: date)
+    }
+
     private static func timeRangeText(for event: CalendarAgendaEvent) -> String {
         if event.isAllDay {
             return "All day"
         }
 
-        let formatter = DateFormatter()
-        formatter.timeStyle = .short
-        formatter.dateStyle = .none
-        return "\(formatter.string(from: event.startAt)) - \(formatter.string(from: event.endAt))"
+        return "\(timeText(for: event.startAt)) - \(timeText(for: event.endAt))"
     }
 
     private static func makeUserInfo(for event: CalendarAgendaEvent) -> [String: Any] {
@@ -217,7 +250,8 @@ final class MeetingReminderService: NSObject, UNUserNotificationCenterDelegate {
             actions: [
                 UNNotificationAction(
                     identifier: joinActionIdentifier,
-                    title: "Join Meeting & Record with Spool"
+                    title: "Join Meeting & record in Spool",
+                    options: [.foreground]
                 )
             ],
             intentIdentifiers: [],

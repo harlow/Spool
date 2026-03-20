@@ -4,11 +4,18 @@ struct SettingsView: View {
     @Bindable var settings: AppSettings
     @Bindable var recordingController: RecordingController
     @Bindable var calendarService: GoogleCalendarService
+    @Bindable var meetingReminderService: MeetingReminderService
 
-    init(settings: AppSettings, recordingController: RecordingController, calendarService: GoogleCalendarService) {
+    init(
+        settings: AppSettings,
+        recordingController: RecordingController,
+        calendarService: GoogleCalendarService,
+        meetingReminderService: MeetingReminderService
+    ) {
         self.settings = settings
         self.recordingController = recordingController
         self.calendarService = calendarService
+        self.meetingReminderService = meetingReminderService
         settings.loadSummaryAPIKeyIfNeeded()
     }
 
@@ -110,6 +117,21 @@ struct SettingsView: View {
                 Toggle("Open summary when complete", isOn: $settings.openSummaryOnCompletion)
                 Toggle("Open session folder when complete", isOn: $settings.openSessionFolderOnCompletion)
                 Toggle("Launch at login", isOn: $settings.launchAtLogin)
+            }
+
+            Section("Meeting Reminders") {
+                LabeledContent("Notifications", value: meetingReminderService.notificationAccessLabel)
+                Text(meetingReminderService.statusLine)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                Button("Refresh reminders") {
+                    Task { await meetingReminderService.refreshNow() }
+                }
+
+                Text("Spool scans your Google Calendar agenda and shows a join-and-record reminder about two minutes before meetings with join links.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
 
             Section("Status") {

@@ -36,7 +36,6 @@ Do not build any of these into V1:
 - cloud sync product
 - collaboration or multi-user features
 - CRM integrations
-- calendar integrations
 - web dashboard
 
 ## Product Shape

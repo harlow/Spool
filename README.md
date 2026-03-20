@@ -12,6 +12,7 @@ If you want to build your own version or understand the full product and enginee
 - Captures microphone and system audio
 - Produces transcript artifacts for each session
 - Generates a Markdown post-call summary with OpenAI
+- Schedules a join-and-record reminder for calendar meetings with join links
 - Writes everything into a user-selected output directory
 
 ## Output Format
@@ -90,6 +91,8 @@ On first launch, Spool will ask you to finish setup in Settings:
 2. Paste your OpenAI API key.
 3. Grant microphone permission.
 4. Grant system audio recording permission.
+5. Grant calendar access so Spool can find upcoming meetings with join links.
+6. Grant notification permission so Spool can show the meeting reminder banner.
 
 The API key is stored in macOS Keychain, not in a checked-in config file.
 

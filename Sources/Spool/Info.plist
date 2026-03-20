@@ -28,6 +28,8 @@
     <string>Spool needs microphone access to record your side of a conversation.</string>
     <key>NSAudioCaptureUsageDescription</key>
     <string>Spool needs system audio recording access to capture the other side of a conversation.</string>
+    <key>NSCalendarsFullAccessUsageDescription</key>
+    <string>Spool needs calendar access to find upcoming meetings with join links and remind you to start recording.</string>
     <key>NSScreenCaptureUsageDescription</key>
     <string>Spool needs screen and system audio capture permission to transcribe the other side of a conversation.</string>
 </dict>
