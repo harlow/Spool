@@ -35,7 +35,9 @@ if [[ -f "$ROOT_DIR/Sources/Spool/Assets/AppIcon.icns" ]]; then
   cp "$ROOT_DIR/Sources/Spool/Assets/AppIcon.icns" "$APP_DIR/Contents/Resources/AppIcon.icns"
 fi
 
-if [[ -n "${GOOGLE_CALENDAR_CLIENT_ID:-}" && -n "${GOOGLE_CALENDAR_CLIENT_SECRET:-}" ]]; then
+EXISTING_OAUTH_CONFIG="/Applications/$APP_NAME.app/Contents/Resources/GoogleOAuthConfig.plist"
+
+if [[ -n "${GOOGLE_CALENDAR_CLIENT_ID:-}" ]]; then
   cat > "$APP_DIR/Contents/Resources/GoogleOAuthConfig.plist" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -43,14 +45,23 @@ if [[ -n "${GOOGLE_CALENDAR_CLIENT_ID:-}" && -n "${GOOGLE_CALENDAR_CLIENT_SECRET
 <dict>
   <key>GOOGLE_CALENDAR_CLIENT_ID</key>
   <string>${GOOGLE_CALENDAR_CLIENT_ID}</string>
+EOF
+  if [[ -n "${GOOGLE_CALENDAR_CLIENT_SECRET:-}" ]]; then
+    cat >> "$APP_DIR/Contents/Resources/GoogleOAuthConfig.plist" <<EOF
   <key>GOOGLE_CALENDAR_CLIENT_SECRET</key>
   <string>${GOOGLE_CALENDAR_CLIENT_SECRET}</string>
+EOF
+  fi
+  cat >> "$APP_DIR/Contents/Resources/GoogleOAuthConfig.plist" <<EOF
 </dict>
 </plist>
 EOF
-  echo "Bundled Google OAuth config from .env"
+  echo "Bundled Google OAuth config from environment"
+elif [[ -f "$EXISTING_OAUTH_CONFIG" ]]; then
+  cp "$EXISTING_OAUTH_CONFIG" "$APP_DIR/Contents/Resources/GoogleOAuthConfig.plist"
+  echo "Preserved Google OAuth config from installed app"
 else
-  echo "Skipping Google OAuth bundle config; GOOGLE_CALENDAR_CLIENT_ID/SECRET not set"
+  echo "Skipping Google OAuth bundle config; GOOGLE_CALENDAR_CLIENT_ID not set and no installed config to preserve"
 fi
 
 echo -n "APPL????" > "$APP_DIR/Contents/PkgInfo"

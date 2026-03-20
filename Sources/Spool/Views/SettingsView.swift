@@ -125,8 +125,14 @@ struct SettingsView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
 
-                Button("Refresh reminders") {
-                    Task { await meetingReminderService.refreshNow() }
+                HStack {
+                    Button("Refresh reminders") {
+                        Task { await meetingReminderService.refreshNow() }
+                    }
+
+                    Button("Send test notification") {
+                        Task { await meetingReminderService.sendTestNotification() }
+                    }
                 }
 
                 Text("Spool scans your Google Calendar agenda and shows a join-and-record reminder about two minutes before meetings with join links.")

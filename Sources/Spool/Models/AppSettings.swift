@@ -166,12 +166,28 @@ final class AppSettings {
         didSet { defaults.set(googleCalendarTokenExpiry, forKey: Keys.googleCalendarTokenExpiry) }
     }
 
+    var googleCalendarAccessToken: String {
+        didSet { defaults.set(googleCalendarAccessToken, forKey: Keys.googleCalendarAccessToken) }
+    }
+
     var googleCalendarAccountEmail: String {
         didSet { defaults.set(googleCalendarAccountEmail, forKey: Keys.googleCalendarAccountEmail) }
     }
 
     var googleCalendarAccountName: String {
         didSet { defaults.set(googleCalendarAccountName, forKey: Keys.googleCalendarAccountName) }
+    }
+
+    var didReviewRecordingAccess: Bool {
+        didSet { defaults.set(didReviewRecordingAccess, forKey: Keys.didReviewRecordingAccess) }
+    }
+
+    var didReviewNotificationAccess: Bool {
+        didSet { defaults.set(didReviewNotificationAccess, forKey: Keys.didReviewNotificationAccess) }
+    }
+
+    var didReviewKeychainAccess: Bool {
+        didSet { defaults.set(didReviewKeychainAccess, forKey: Keys.didReviewKeychainAccess) }
     }
 
     var summaryApiKey: String {
@@ -197,8 +213,12 @@ final class AppSettings {
         selectedGoogleCalendarID = defaults.string(forKey: Keys.selectedGoogleCalendarID) ?? ""
         selectedGoogleCalendarName = defaults.string(forKey: Keys.selectedGoogleCalendarName) ?? ""
         googleCalendarTokenExpiry = defaults.integer(forKey: Keys.googleCalendarTokenExpiry)
+        googleCalendarAccessToken = defaults.string(forKey: Keys.googleCalendarAccessToken) ?? ""
         googleCalendarAccountEmail = defaults.string(forKey: Keys.googleCalendarAccountEmail) ?? ""
         googleCalendarAccountName = defaults.string(forKey: Keys.googleCalendarAccountName) ?? ""
+        didReviewRecordingAccess = defaults.bool(forKey: Keys.didReviewRecordingAccess)
+        didReviewNotificationAccess = defaults.bool(forKey: Keys.didReviewNotificationAccess)
+        didReviewKeychainAccess = defaults.bool(forKey: Keys.didReviewKeychainAccess)
         summaryApiKey = ""
     }
 
@@ -249,10 +269,6 @@ final class AppSettings {
     func loadSummaryAPIKeyIfNeeded() {
         guard summaryApiKey.isEmpty else { return }
         summaryApiKey = KeychainHelper.load(key: Keys.summaryApiKey) ?? ""
-    }
-
-    func preloadSecretsForLaunch() {
-        _ = KeychainHelper.load(key: Keys.summaryApiKey)
     }
 
     func hasStoredSummaryAPIKey() -> Bool {
@@ -315,11 +331,12 @@ final class AppSettings {
         static let selectedGoogleCalendarName = "selectedGoogleCalendarName"
         static let googleCalendarRefreshToken = "googleCalendarRefreshToken"
         static let googleCalendarAccessToken = "googleCalendarAccessToken"
-        static let googleCalendarIDToken = "googleCalendarIDToken"
-        static let googleCalendarClientSecret = "googleCalendarClientSecret"
         static let googleCalendarTokenExpiry = "googleCalendarTokenExpiry"
         static let googleCalendarAccountEmail = "googleCalendarAccountEmail"
         static let googleCalendarAccountName = "googleCalendarAccountName"
+        static let didReviewRecordingAccess = "didReviewRecordingAccess"
+        static let didReviewNotificationAccess = "didReviewNotificationAccess"
+        static let didReviewKeychainAccess = "didReviewKeychainAccess"
     }
 }
 
@@ -412,7 +429,6 @@ enum KeychainHelper {
         try? fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
         return directory.appending(path: "DeveloperSecrets.plist")
     }()
-    private static var cachedEnvelope: [String: String]?
 
     static func save(key: String, value: String) {
         if developerConfiguration.useLocalSecretStore {
@@ -420,9 +436,16 @@ enum KeychainHelper {
             return
         }
 
-        var secrets = cachedEnvelope ?? loadEnvelopeFromKeychain()
-        secrets[key] = value
-        saveEnvelopeToKeychain(secrets)
+        let data = Data(value.utf8)
+        deleteDirectItem(key: key)
+
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: key,
+            kSecValueData as String: data,
+        ]
+        SecItemAdd(query as CFDictionary, nil)
     }
 
     static func load(key: String) -> String? {
@@ -437,7 +460,16 @@ enum KeychainHelper {
             return nil
         }
 
-        return (cachedEnvelope ?? loadEnvelopeFromKeychain())[key]
+        if let direct = loadDirectItem(key: key), !direct.isEmpty {
+            return direct
+        }
+
+        guard let migrated = loadLegacyEnvelopeValue(key: key), !migrated.isEmpty else {
+            return nil
+        }
+
+        save(key: key, value: migrated)
+        return migrated
     }
 
     static func exists(key: String) -> Bool {
@@ -451,20 +483,11 @@ enum KeychainHelper {
             return false
         }
 
-        let context = LAContext()
-        context.interactionNotAllowed = true
+        if loadDirectItem(key: key, interactionAllowed: false) != nil {
+            return true
+        }
 
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: envelopeAccount,
-            kSecReturnAttributes as String: true,
-            kSecMatchLimit as String: kSecMatchLimitOne,
-            kSecUseAuthenticationContext as String: context,
-        ]
-
-        let status = SecItemCopyMatching(query as CFDictionary, nil)
-        return status == errSecSuccess
+        return legacyEnvelopeContains(key: key)
     }
 
     static func delete(key: String) {
@@ -473,64 +496,7 @@ enum KeychainHelper {
             return
         }
 
-        var secrets = cachedEnvelope ?? loadEnvelopeFromKeychain()
-        secrets.removeValue(forKey: key)
-        if secrets.isEmpty {
-            deleteEnvelopeFromKeychain()
-        } else {
-            saveEnvelopeToKeychain(secrets)
-        }
-    }
-
-    private static func loadEnvelopeFromKeychain() -> [String: String] {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: envelopeAccount,
-            kSecReturnData as String: true,
-            kSecMatchLimit as String: kSecMatchLimitOne,
-        ]
-
-        var result: AnyObject?
-        let status = SecItemCopyMatching(query as CFDictionary, &result)
-        guard status == errSecSuccess, let data = result as? Data else { return [:] }
-
-        guard
-            let plist = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: String]
-        else {
-            return [:]
-        }
-
-        cachedEnvelope = plist
-        return plist
-    }
-
-    private static func saveEnvelopeToKeychain(_ secrets: [String: String]) {
-        guard let data = try? PropertyListSerialization.data(fromPropertyList: secrets, format: .xml, options: 0) else {
-            return
-        }
-
-        deleteEnvelopeFromKeychain()
-
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: envelopeAccount,
-            kSecValueData as String: data,
-        ]
-
-        SecItemAdd(query as CFDictionary, nil)
-        cachedEnvelope = secrets
-    }
-
-    private static func deleteEnvelopeFromKeychain() {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: envelopeAccount,
-        ]
-        SecItemDelete(query as CFDictionary)
-        cachedEnvelope = [:]
+        deleteDirectItem(key: key)
     }
 
     private static func loadFromLocalStore(key: String) -> String? {
@@ -564,5 +530,67 @@ enum KeychainHelper {
             return
         }
         try? data.write(to: localSecretsURL, options: .atomic)
+    }
+
+    private static func loadDirectItem(key: String, interactionAllowed: Bool = true) -> String? {
+        var query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: key,
+            kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne,
+        ]
+
+        if !interactionAllowed {
+            let context = LAContext()
+            context.interactionNotAllowed = true
+            query[kSecUseAuthenticationContext as String] = context
+        }
+
+        var result: AnyObject?
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        guard status == errSecSuccess, let data = result as? Data else { return nil }
+        return String(data: data, encoding: .utf8)
+    }
+
+    private static func deleteDirectItem(key: String) {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: key,
+        ]
+        SecItemDelete(query as CFDictionary)
+    }
+
+    private static func loadLegacyEnvelopeValue(key: String) -> String? {
+        guard let envelope = loadLegacyEnvelope() else { return nil }
+        return envelope[key]
+    }
+
+    private static func legacyEnvelopeContains(key: String) -> Bool {
+        guard let envelope = loadLegacyEnvelope(interactionAllowed: false) else { return false }
+        guard let value = envelope[key] else { return false }
+        return !value.isEmpty
+    }
+
+    private static func loadLegacyEnvelope(interactionAllowed: Bool = true) -> [String: String]? {
+        var query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: envelopeAccount,
+            kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne,
+        ]
+
+        if !interactionAllowed {
+            let context = LAContext()
+            context.interactionNotAllowed = true
+            query[kSecUseAuthenticationContext as String] = context
+        }
+
+        var result: AnyObject?
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        guard status == errSecSuccess, let data = result as? Data else { return nil }
+        return try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: String]
     }
 }

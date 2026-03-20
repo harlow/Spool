@@ -1,4 +1,5 @@
 import AppKit
+import AVFoundation
 import SwiftUI
 
 @MainActor
@@ -8,6 +9,7 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
     private let calendarService: GoogleCalendarService
     private let meetingReminderService: MeetingReminderService
 
+    private var onboardingWindow: NSWindow?
     private var settingsWindow: NSWindow?
 
     init(
@@ -35,6 +37,44 @@ final class WindowCoordinator: NSObject, NSWindowDelegate {
         )
         settingsWindow = window
         show(window)
+    }
+
+    func showOnboarding() {
+        let window = onboardingWindow ?? makeWindow(
+            title: "Spool Onboarding",
+            content: OnboardingView(
+                settings: settings,
+                meetingReminderService: meetingReminderService,
+                onDone: { [weak self] in
+                    self?.closeOnboarding()
+                }
+            )
+        )
+        onboardingWindow = window
+        show(window)
+    }
+
+    func closeOnboarding() {
+        onboardingWindow?.close()
+        if !shouldShowOnboarding() {
+            meetingReminderService.start()
+        }
+    }
+
+    func shouldShowOnboarding() -> Bool {
+        if !settings.didReviewRecordingAccess, AVCaptureDevice.authorizationStatus(for: .audio) == .notDetermined {
+            return true
+        }
+
+        if !settings.didReviewKeychainAccess {
+            return true
+        }
+
+        if !settings.didReviewNotificationAccess, meetingReminderService.notificationAuthorizationStatus == .notDetermined {
+            return true
+        }
+
+        return false
     }
 
     private func makeWindow<Content: View>(title: String, content: Content) -> NSWindow {

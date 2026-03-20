@@ -135,6 +135,18 @@ final class RecordingController {
         refreshStartupState()
     }
 
+    func prepareRecordingAccess() async {
+        settings.didReviewRecordingAccess = true
+        await transcriptionEngine.warmUpSystemAudioPermission()
+        if let permissionMessage = await transcriptionEngine.requestPermissionsIfNeeded() {
+            blockingIssueMessage = permissionMessage
+            errorMessage = permissionMessage
+            state = .idle
+            return
+        }
+        refreshStartupState()
+    }
+
     var canStartNewRecording: Bool {
         switch state {
         case .idle, .ready, .completed, .failed:

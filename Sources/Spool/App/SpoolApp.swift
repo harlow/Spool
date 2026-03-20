@@ -23,16 +23,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let model = AppModel.shared
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
-        model.settings.preloadSecretsForLaunch()
         UNUserNotificationCenter.current().delegate = model.meetingReminderService
         model.appShell.start()
-        model.meetingReminderService.start()
         model.recordingController.refreshStartupState()
         Task { @MainActor in
-            await model.recordingController.warmUpPermissionsOnLaunch()
-            if model.settings.outputRootPath.isEmpty {
-                model.windowCoordinator.showSettings()
+            await model.meetingReminderService.refreshAuthorizationStatus()
+            if model.windowCoordinator.shouldShowOnboarding() {
+                model.windowCoordinator.showOnboarding()
             } else {
+                model.meetingReminderService.start()
+                await model.calendarService.refreshStatus(force: false)
                 NSApp.setActivationPolicy(.accessory)
             }
         }
@@ -44,7 +44,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         if !flag {
-            AppModel.shared.windowCoordinator.showSettings()
+            if AppModel.shared.windowCoordinator.shouldShowOnboarding() {
+                AppModel.shared.windowCoordinator.showOnboarding()
+            } else {
+                AppModel.shared.windowCoordinator.showSettings()
+            }
         }
         return true
     }

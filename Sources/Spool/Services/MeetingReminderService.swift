@@ -12,8 +12,10 @@ final class MeetingReminderService: NSObject, UNUserNotificationCenterDelegate {
     private let center = UNUserNotificationCenter.current()
     private var timer: Timer?
     private var notifiedEventIDs: Set<String> = []
+    private var hasStarted = false
 
     var notificationsAuthorized = false
+    var notificationAuthorizationStatus: UNAuthorizationStatus = .notDetermined
 
     private let leadTime: TimeInterval = 2 * 60
 
@@ -24,7 +26,16 @@ final class MeetingReminderService: NSObject, UNUserNotificationCenterDelegate {
     }
 
     var notificationAccessLabel: String {
-        notificationsAuthorized ? "Allowed" : "Not allowed"
+        switch notificationAuthorizationStatus {
+        case .authorized, .provisional:
+            return "Allowed"
+        case .notDetermined:
+            return "Not requested"
+        case .denied:
+            return "Denied"
+        @unknown default:
+            return "Unknown"
+        }
     }
 
     var statusLine: String {
@@ -32,8 +43,15 @@ final class MeetingReminderService: NSObject, UNUserNotificationCenterDelegate {
             return "Enable Google Calendar integration to schedule reminders."
         }
 
-        if !notificationsAuthorized {
-            return "Notifications are not authorized for Spool."
+        switch notificationAuthorizationStatus {
+        case .authorized, .provisional:
+            break
+        case .notDetermined:
+            return "Notification permission will be requested when a reminder is due."
+        case .denied:
+            return "Notifications are denied for Spool."
+        @unknown default:
+            return "Notification authorization state is unavailable."
         }
 
         guard let event = nextImminentEvent() else {
@@ -44,9 +62,10 @@ final class MeetingReminderService: NSObject, UNUserNotificationCenterDelegate {
     }
 
     func start() {
+        guard !hasStarted else { return }
+        hasStarted = true
         center.delegate = self
         center.setNotificationCategories([Self.makeMeetingCategory()])
-        requestAuthorization()
 
         timer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
             Task { @MainActor in
@@ -64,6 +83,30 @@ final class MeetingReminderService: NSObject, UNUserNotificationCenterDelegate {
         await refreshAndNotifyIfNeeded(forceAgendaRefresh: true)
     }
 
+    func requestAuthorizationNow() async {
+        settings.didReviewNotificationAccess = true
+        _ = await requestAuthorization(forcePrompt: true)
+    }
+
+    func sendTestNotification() async {
+        settings.didReviewNotificationAccess = true
+        let granted = await requestAuthorization(forcePrompt: true)
+        guard granted else { return }
+
+        let content = UNMutableNotificationContent()
+        content.title = "Spool test reminder"
+        content.body = "Join Meeting & record in Spool"
+        content.sound = .default
+        content.categoryIdentifier = Self.categoryIdentifier
+
+        let request = UNNotificationRequest(
+            identifier: "meeting-reminder-test",
+            content: content,
+            trigger: nil
+        )
+        _ = await addNotification(request)
+    }
+
     func refreshAndNotifyIfNeeded(forceAgendaRefresh: Bool = false) async {
         guard settings.calendarIntegrationEnabled else { return }
         guard recordingController.state != .recording else { return }
@@ -73,23 +116,48 @@ final class MeetingReminderService: NSObject, UNUserNotificationCenterDelegate {
         pruneNotifiedEvents()
 
         guard let event = nextImminentEvent() else { return }
+        let granted = await requestAuthorization(forcePrompt: false)
+        guard granted else { return }
+        let didDeliver = await deliverNotification(for: event)
+        guard didDeliver else { return }
         notifiedEventIDs.insert(event.id)
-        deliverNotification(for: event)
     }
 
-    private func requestAuthorization() {
-        center.requestAuthorization(options: [.alert, .sound]) { [weak self] granted, _ in
-            Task { @MainActor in
-                self?.notificationsAuthorized = granted
+    private func requestAuthorization(forcePrompt: Bool) async -> Bool {
+        await refreshAuthorizationStatus()
+
+        switch notificationAuthorizationStatus {
+        case .authorized, .provisional:
+            return true
+        case .denied:
+            return false
+        case .notDetermined:
+            guard forcePrompt || nextImminentEvent() != nil else {
+                return false
             }
-        }
-        Task { @MainActor in
+            let granted = await withCheckedContinuation { continuation in
+                center.requestAuthorization(options: [.alert, .sound]) { granted, _ in
+                    continuation.resume(returning: granted)
+                }
+            }
             await refreshAuthorizationStatus()
+            notificationsAuthorized = granted
+            return granted
+        @unknown default:
+            return false
         }
+    }
+
+    func openSystemNotificationSettings() {
+        guard let url = URL(string: "x-apple.systempreferences:com.apple.preference.notifications") else {
+            return
+        }
+        NSWorkspace.shared.open(url)
     }
 
     func refreshAuthorizationStatus() async {
         let settings = await center.notificationSettings()
+        notificationAuthorizationStatus = settings.authorizationStatus
         notificationsAuthorized = settings.authorizationStatus == .authorized || settings.authorizationStatus == .provisional
     }
 
@@ -128,7 +196,7 @@ final class MeetingReminderService: NSObject, UNUserNotificationCenterDelegate {
         return nextEvent.startAt.timeIntervalSince(now) <= leadTime
     }
 
-    private func deliverNotification(for event: CalendarAgendaEvent) {
+    private func deliverNotification(for event: CalendarAgendaEvent) async -> Bool {
         let content = UNMutableNotificationContent()
         content.title = event.title
         content.body = "\(Self.timeRangeText(for: event))\nJoin Meeting & record in Spool"
@@ -141,7 +209,15 @@ final class MeetingReminderService: NSObject, UNUserNotificationCenterDelegate {
             content: content,
             trigger: nil
         )
-        center.add(request)
+        return await addNotification(request)
+    }
+
+    private func addNotification(_ request: UNNotificationRequest) async -> Bool {
+        await withCheckedContinuation { continuation in
+            center.add(request) { error in
+                continuation.resume(returning: error == nil)
+            }
+        }
     }
 
     nonisolated func userNotificationCenter(

@@ -33,7 +33,8 @@ final class OpenAISummaryService {
     }
 
     func summarize(transcript: String, descriptor: SessionDescriptor) async throws -> SummaryResult {
-        let apiKey = settings.summaryApiKey.isEmpty ? (KeychainHelper.load(key: "summaryApiKey") ?? "") : settings.summaryApiKey
+        settings.loadSummaryAPIKeyIfNeeded()
+        let apiKey = settings.summaryApiKey
         guard !apiKey.isEmpty else { throw OpenAISummaryError.missingAPIKey }
 
         let requestBody = ChatCompletionsRequest(

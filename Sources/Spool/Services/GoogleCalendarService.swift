@@ -151,8 +151,7 @@ package final class GoogleCalendarService {
 
     func signOut() {
         KeychainHelper.delete(key: AppSettings.Keys.googleCalendarRefreshToken)
-        KeychainHelper.delete(key: AppSettings.Keys.googleCalendarAccessToken)
-        KeychainHelper.delete(key: AppSettings.Keys.googleCalendarIDToken)
+        settings.googleCalendarAccessToken = ""
         settings.googleCalendarTokenExpiry = 0
         settings.googleCalendarAccountEmail = ""
         settings.googleCalendarAccountName = ""
@@ -581,11 +580,10 @@ package final class GoogleCalendarService {
         }
 
         let response = try Self.makeJSONDecoder().decode(GoogleOAuthTokenResponse.self, from: result.data)
-        let existingIDToken = KeychainHelper.load(key: AppSettings.Keys.googleCalendarIDToken)
         return GoogleCalendarTokenSet(
             accessToken: response.accessToken,
             refreshToken: refreshToken,
-            idToken: response.idToken ?? existingIDToken,
+            idToken: response.idToken ?? cachedTokens?.idToken,
             expiresAt: nowProvider().addingTimeInterval(TimeInterval(response.expiresIn))
         )
     }
@@ -593,10 +591,7 @@ package final class GoogleCalendarService {
     private func storeTokens(_ tokens: GoogleCalendarTokenSet) {
         cachedTokens = tokens
         KeychainHelper.save(key: AppSettings.Keys.googleCalendarRefreshToken, value: tokens.refreshToken)
-        KeychainHelper.save(key: AppSettings.Keys.googleCalendarAccessToken, value: tokens.accessToken)
-        if let idToken = tokens.idToken {
-            KeychainHelper.save(key: AppSettings.Keys.googleCalendarIDToken, value: idToken)
-        }
+        settings.googleCalendarAccessToken = tokens.accessToken
         settings.googleCalendarTokenExpiry = Int(tokens.expiresAt.timeIntervalSince1970)
 
         let account = account(from: tokens)
@@ -607,36 +602,24 @@ package final class GoogleCalendarService {
     private func restoreTokens() -> GoogleCalendarTokenSet? {
         guard
             let refreshToken = KeychainHelper.load(key: AppSettings.Keys.googleCalendarRefreshToken),
-            let accessToken = KeychainHelper.load(key: AppSettings.Keys.googleCalendarAccessToken),
             !refreshToken.isEmpty,
-            !accessToken.isEmpty
+            !settings.googleCalendarAccessToken.isEmpty
         else {
             return nil
         }
 
         let expiry = Date(timeIntervalSince1970: TimeInterval(settings.googleCalendarTokenExpiry))
-        let idToken = KeychainHelper.load(key: AppSettings.Keys.googleCalendarIDToken)
         return GoogleCalendarTokenSet(
-            accessToken: accessToken,
+            accessToken: settings.googleCalendarAccessToken,
             refreshToken: refreshToken,
-            idToken: idToken,
+            idToken: nil,
             expiresAt: expiry
         )
     }
 
     private func resolvedGoogleClientSecret() -> String? {
         let bundledSecret = settings.googleCalendarClientSecret.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !bundledSecret.isEmpty {
-            return bundledSecret
-        }
-
-        let legacyKeychainSecret = KeychainHelper.load(key: AppSettings.Keys.googleCalendarClientSecret)?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        if let legacyKeychainSecret, !legacyKeychainSecret.isEmpty {
-            return legacyKeychainSecret
-        }
-
-        return nil
+        return bundledSecret.isEmpty ? nil : bundledSecret
     }
 
     private func account(from tokens: GoogleCalendarTokenSet) -> GoogleCalendarAccount? {
