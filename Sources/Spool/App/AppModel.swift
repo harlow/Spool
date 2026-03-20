@@ -47,5 +47,14 @@ final class AppModel {
         self.recordingIndicatorManager = recordingIndicatorManager
         self.windowCoordinator = windowCoordinator
         self.appShell = appShell
+
+        // Migrate secrets from the legacy single-item Keychain envelope
+        // into individual items.  After this, every KeychainHelper.load()
+        // resolves on the first lookup — no second prompt for the envelope.
+        KeychainHelper.migrateLegacyEnvelopeIfNeeded()
+
+        // Preload Keychain items so later reads use cached values.
+        settings.loadSummaryAPIKeyIfNeeded()
+        calendarService.loadRefreshTokenIfNeeded()
     }
 }

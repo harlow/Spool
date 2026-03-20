@@ -16,7 +16,6 @@ struct SettingsView: View {
         self.recordingController = recordingController
         self.calendarService = calendarService
         self.meetingReminderService = meetingReminderService
-        settings.loadSummaryAPIKeyIfNeeded()
     }
 
     var body: some View {

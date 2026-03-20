@@ -430,6 +430,26 @@ enum KeychainHelper {
         return directory.appending(path: "DeveloperSecrets.plist")
     }()
 
+    /// Migrate all secrets from the legacy single-item envelope into
+    /// individual Keychain items.  After migration, every `load()` call
+    /// resolves on the first Keychain lookup instead of falling through
+    /// to the envelope (which is a second Keychain prompt).
+    static func migrateLegacyEnvelopeIfNeeded() {
+        if developerConfiguration.useLocalSecretStore { return }
+
+        guard let envelope = loadLegacyEnvelope() else { return }
+
+        for (key, value) in envelope where !value.isEmpty {
+            // Only migrate if there is no direct item yet.
+            if loadDirectItem(key: key, interactionAllowed: false) == nil {
+                save(key: key, value: value)
+            }
+        }
+
+        // Delete the legacy envelope so we never read it again.
+        deleteDirectItem(key: envelopeAccount)
+    }
+
     static func save(key: String, value: String) {
         if developerConfiguration.useLocalSecretStore {
             saveToLocalStore(key: key, value: value)

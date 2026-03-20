@@ -42,6 +42,7 @@ package final class GoogleCalendarService {
     private var callbackServer: GoogleOAuthCallbackServer?
     private var pendingAuthorization: GoogleCalendarAuthorizationRequest?
     private var cachedTokens: GoogleCalendarTokenSet?
+    private var cachedRefreshToken: String?
     private let logURL: URL = {
         let logsDirectory = FileManager.default.homeDirectoryForCurrentUser
             .appending(path: "Library", directoryHint: .isDirectory)
@@ -68,6 +69,11 @@ package final class GoogleCalendarService {
         self.sendRequest = sendRequest
         self.openBrowser = openBrowser
         self.nowProvider = nowProvider
+    }
+
+    func loadRefreshTokenIfNeeded() {
+        guard cachedRefreshToken == nil else { return }
+        cachedRefreshToken = KeychainHelper.load(key: AppSettings.Keys.googleCalendarRefreshToken)
     }
 
     func start() {
@@ -158,6 +164,7 @@ package final class GoogleCalendarService {
         settings.selectedGoogleCalendarID = ""
         settings.selectedGoogleCalendarName = ""
         cachedTokens = nil
+        cachedRefreshToken = nil
         connectedAccount = nil
         availableCalendars = []
         agendaSnapshot = nil
@@ -496,7 +503,8 @@ package final class GoogleCalendarService {
             return restored
         }
 
-        guard let refreshToken = KeychainHelper.load(key: AppSettings.Keys.googleCalendarRefreshToken), !refreshToken.isEmpty else {
+        loadRefreshTokenIfNeeded()
+        guard let refreshToken = cachedRefreshToken, !refreshToken.isEmpty else {
             if let lastBlockingError, !lastBlockingError.isEmpty {
                 log("No refresh token in Keychain; surfacing last blocking error: \(lastBlockingError)")
                 throw GoogleCalendarError.other(lastBlockingError)
@@ -590,6 +598,7 @@ package final class GoogleCalendarService {
 
     private func storeTokens(_ tokens: GoogleCalendarTokenSet) {
         cachedTokens = tokens
+        cachedRefreshToken = tokens.refreshToken
         KeychainHelper.save(key: AppSettings.Keys.googleCalendarRefreshToken, value: tokens.refreshToken)
         settings.googleCalendarAccessToken = tokens.accessToken
         settings.googleCalendarTokenExpiry = Int(tokens.expiresAt.timeIntervalSince1970)
@@ -600,8 +609,9 @@ package final class GoogleCalendarService {
     }
 
     private func restoreTokens() -> GoogleCalendarTokenSet? {
+        loadRefreshTokenIfNeeded()
         guard
-            let refreshToken = KeychainHelper.load(key: AppSettings.Keys.googleCalendarRefreshToken),
+            let refreshToken = cachedRefreshToken,
             !refreshToken.isEmpty,
             !settings.googleCalendarAccessToken.isEmpty
         else {
