@@ -16,6 +16,7 @@ final class MeetingReminderService: NSObject, UNUserNotificationCenterDelegate {
 
     var notificationsAuthorized = false
     var notificationAuthorizationStatus: UNAuthorizationStatus = .notDetermined
+    var lastAuthorizationError: String?
 
     private let leadTime: TimeInterval = 2 * 60
 
@@ -85,11 +86,13 @@ final class MeetingReminderService: NSObject, UNUserNotificationCenterDelegate {
 
     func requestAuthorizationNow() async {
         settings.didReviewNotificationAccess = true
+        NSApp.activate(ignoringOtherApps: true)
         _ = await requestAuthorization(forcePrompt: true)
     }
 
     func sendTestNotification() async {
         settings.didReviewNotificationAccess = true
+        NSApp.activate(ignoringOtherApps: true)
         let granted = await requestAuthorization(forcePrompt: true)
         guard granted else { return }
 
@@ -128,17 +131,27 @@ final class MeetingReminderService: NSObject, UNUserNotificationCenterDelegate {
 
         switch notificationAuthorizationStatus {
         case .authorized, .provisional:
+            lastAuthorizationError = nil
             return true
         case .denied:
+            lastAuthorizationError = "Notifications are denied. Open System Settings to allow them."
             return false
         case .notDetermined:
             guard forcePrompt || nextImminentEvent() != nil else {
                 return false
             }
-            let granted = await withCheckedContinuation { continuation in
-                center.requestAuthorization(options: [.alert, .sound]) { granted, _ in
-                    continuation.resume(returning: granted)
+            // Register the app for notifications before requesting authorization.
+            NSApplication.shared.registerForRemoteNotifications()
+
+            let (granted, error) = await withCheckedContinuation { continuation in
+                center.requestAuthorization(options: [.alert, .sound, .badge]) { granted, error in
+                    continuation.resume(returning: (granted, error))
                 }
+            }
+            if let error {
+                lastAuthorizationError = error.localizedDescription
+            } else {
+                lastAuthorizationError = nil
             }
             await refreshAuthorizationStatus()
             notificationsAuthorized = granted

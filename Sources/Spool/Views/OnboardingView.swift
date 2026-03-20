@@ -145,8 +145,26 @@ struct OnboardingView: View {
                 Text("This step asks macOS for permission to show the Join Meeting & record in Spool notification.")
                     .foregroundStyle(.secondary)
 
-                Button("Enable Notifications") {
-                    Task { await meetingReminderService.requestAuthorizationNow() }
+                HStack {
+                    Button("Enable Notifications") {
+                        Task { await meetingReminderService.requestAuthorizationNow() }
+                    }
+
+                    if meetingReminderService.notificationAuthorizationStatus == .denied {
+                        Button("Open Notification Settings") {
+                            meetingReminderService.openSystemNotificationSettings()
+                        }
+                    }
+                }
+
+                if let error = meetingReminderService.lastAuthorizationError {
+                    Text(error)
+                        .foregroundStyle(.red)
+                }
+
+                if meetingReminderService.notificationsAuthorized {
+                    Text("Notifications enabled.")
+                        .foregroundStyle(.green)
                 }
             }
         }

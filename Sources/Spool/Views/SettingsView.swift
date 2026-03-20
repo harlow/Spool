@@ -125,6 +125,12 @@ struct SettingsView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
 
+                if let error = meetingReminderService.lastAuthorizationError {
+                    Text(error)
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                }
+
                 HStack {
                     Button("Refresh reminders") {
                         Task { await meetingReminderService.refreshNow() }
@@ -132,6 +138,10 @@ struct SettingsView: View {
 
                     Button("Send test notification") {
                         Task { await meetingReminderService.sendTestNotification() }
+                    }
+
+                    Button("Open Notification Settings") {
+                        meetingReminderService.openSystemNotificationSettings()
                     }
                 }
 

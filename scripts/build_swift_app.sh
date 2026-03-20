@@ -66,6 +66,10 @@ fi
 
 echo -n "APPL????" > "$APP_DIR/Contents/PkgInfo"
 
+ENTITLEMENTS="$ROOT_DIR/Sources/Spool/Spool.entitlements"
+codesign --force --sign - --entitlements "$ENTITLEMENTS" --identifier "$BUNDLE_ID" "$APP_DIR"
+echo "Code-signed app bundle (ad-hoc)"
+
 echo "App bundle created: $APP_DIR"
 echo "Bundle identifier: $BUNDLE_ID"
 
