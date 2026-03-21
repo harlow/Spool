@@ -154,6 +154,10 @@ final class AppSettings {
         didSet { defaults.set(calendarIntegrationEnabled, forKey: Keys.calendarIntegrationEnabled) }
     }
 
+    var adHocMeetingDetectionEnabled: Bool {
+        didSet { defaults.set(adHocMeetingDetectionEnabled, forKey: Keys.adHocMeetingDetectionEnabled) }
+    }
+
     var selectedGoogleCalendarID: String {
         didSet { defaults.set(selectedGoogleCalendarID, forKey: Keys.selectedGoogleCalendarID) }
     }
@@ -210,6 +214,7 @@ final class AppSettings {
         launchAtLogin = defaults.bool(forKey: Keys.launchAtLogin)
         preferredHotkey = ShortcutBinding(rawValue: defaults.string(forKey: Keys.preferredHotkey) ?? "") ?? .none
         calendarIntegrationEnabled = defaults.bool(forKey: Keys.calendarIntegrationEnabled)
+        adHocMeetingDetectionEnabled = defaults.object(forKey: Keys.adHocMeetingDetectionEnabled) as? Bool ?? true
         selectedGoogleCalendarID = defaults.string(forKey: Keys.selectedGoogleCalendarID) ?? ""
         selectedGoogleCalendarName = defaults.string(forKey: Keys.selectedGoogleCalendarName) ?? ""
         googleCalendarTokenExpiry = defaults.integer(forKey: Keys.googleCalendarTokenExpiry)
@@ -327,6 +332,7 @@ final class AppSettings {
         static let launchAtLogin = "launchAtLogin"
         static let preferredHotkey = "preferredHotkey"
         static let calendarIntegrationEnabled = "calendarIntegrationEnabled"
+        static let adHocMeetingDetectionEnabled = "adHocMeetingDetectionEnabled"
         static let selectedGoogleCalendarID = "selectedGoogleCalendarID"
         static let selectedGoogleCalendarName = "selectedGoogleCalendarName"
         static let googleCalendarRefreshToken = "googleCalendarRefreshToken"

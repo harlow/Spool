@@ -351,7 +351,7 @@ enum SessionNamer {
     }
 
     static func summaryFileName(from date: Date, slug: String) -> String {
-        "\(formatter("yyyy-MM-dd").string(from: date))_\(slug).md"
+        "call_summary.md"
     }
 
     private static func formatter(_ format: String) -> DateFormatter {

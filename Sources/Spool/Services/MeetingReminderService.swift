@@ -1,7 +1,10 @@
 import AppKit
 import Foundation
 import Observation
+import os.log
 @preconcurrency import UserNotifications
+
+private let logger = Logger(subsystem: "com.fieldgrid.spool", category: "MeetingReminderService")
 
 @Observable
 @MainActor
@@ -17,6 +20,10 @@ final class MeetingReminderService: NSObject, UNUserNotificationCenterDelegate {
     var notificationsAuthorized = false
     var notificationAuthorizationStatus: UNAuthorizationStatus = .notDetermined
     var lastAuthorizationError: String?
+
+    var onAdHocAccepted: (() -> Void)?
+    var onAdHocNotAMeeting: (() -> Void)?
+    private var adHocTimeoutTask: Task<Void, Never>?
 
     private let leadTime: TimeInterval = 2 * 60
 
@@ -66,7 +73,7 @@ final class MeetingReminderService: NSObject, UNUserNotificationCenterDelegate {
         guard !hasStarted else { return }
         hasStarted = true
         center.delegate = self
-        center.setNotificationCategories([Self.makeMeetingCategory()])
+        center.setNotificationCategories([Self.makeMeetingCategory(), Self.makeAdHocCategory()])
 
         timer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
             Task { @MainActor in
@@ -244,13 +251,32 @@ final class MeetingReminderService: NSObject, UNUserNotificationCenterDelegate {
         _ center: UNUserNotificationCenter,
         didReceive response: UNNotificationResponse
     ) async {
-        guard response.notification.request.content.categoryIdentifier == Self.categoryIdentifier else { return }
-        guard response.actionIdentifier == UNNotificationDefaultActionIdentifier || response.actionIdentifier == Self.joinActionIdentifier else {
-            return
-        }
+        let category = response.notification.request.content.categoryIdentifier
+        let action = response.actionIdentifier
 
-        let userInfo = response.notification.request.content.userInfo
-        await self.handleJoinAndRecord(userInfo: userInfo)
+        if category == Self.categoryIdentifier {
+            guard action == UNNotificationDefaultActionIdentifier || action == Self.joinActionIdentifier else {
+                return
+            }
+            let userInfo = response.notification.request.content.userInfo
+            await self.handleJoinAndRecord(userInfo: userInfo)
+        } else if category == Self.adHocCategoryIdentifier {
+            await handleAdHocResponse(action: action)
+        }
+    }
+
+    private func handleAdHocResponse(action: String) {
+        adHocTimeoutTask?.cancel()
+        adHocTimeoutTask = nil
+
+        switch action {
+        case Self.adHocNotAMeetingActionIdentifier:
+            onAdHocNotAMeeting?()
+        case Self.adHocRecordActionIdentifier, UNNotificationDefaultActionIdentifier:
+            onAdHocAccepted?()
+        default:
+            break
+        }
     }
 
     private func handleJoinAndRecord(userInfo: [AnyHashable: Any]) async {
@@ -329,8 +355,65 @@ final class MeetingReminderService: NSObject, UNUserNotificationCenterDelegate {
         )
     }
 
+    // MARK: - Ad-hoc meeting detection notifications
+
+    func deliverAdHocNotification(appName: String?) async -> Bool {
+        logger.log("deliverAdHocNotification called for app: \(appName ?? "nil", privacy: .public)")
+        let granted = await requestAuthorization(forcePrompt: true)
+        logger.log("Authorization granted: \(granted)")
+        guard granted else { return false }
+
+        adHocTimeoutTask?.cancel()
+
+        center.removeDeliveredNotifications(withIdentifiers: [Self.adHocNotificationID])
+
+        let content = UNMutableNotificationContent()
+        if let appName {
+            content.title = "Meeting Detected"
+            content.body = "\(appName) is using your microphone. Tap to record in Spool."
+        } else {
+            content.title = "Microphone Active"
+            content.body = "A meeting may be in progress. Tap to record in Spool."
+        }
+        content.sound = .default
+        content.categoryIdentifier = Self.adHocCategoryIdentifier
+
+        let request = UNNotificationRequest(
+            identifier: Self.adHocNotificationID,
+            content: content,
+            trigger: nil
+        )
+        let didDeliver = await addNotification(request)
+        logger.log("Ad-hoc notification delivered: \(didDeliver)")
+        guard didDeliver else { return false }
+
+        adHocTimeoutTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(60))
+            guard !Task.isCancelled else { return }
+            UNUserNotificationCenter.current().removeDeliveredNotifications(
+                withIdentifiers: [Self.adHocNotificationID]
+            )
+            await MainActor.run { self?.adHocTimeoutTask = nil }
+        }
+
+        return true
+    }
+
+    func cancelAdHocNotification() {
+        adHocTimeoutTask?.cancel()
+        adHocTimeoutTask = nil
+        center.removeDeliveredNotifications(withIdentifiers: [Self.adHocNotificationID])
+    }
+
+    // MARK: - Notification identifiers and categories
+
     nonisolated private static let categoryIdentifier = "SPOOL_MEETING_REMINDER"
     nonisolated private static let joinActionIdentifier = "JOIN_AND_RECORD"
+
+    nonisolated private static let adHocCategoryIdentifier = "SPOOL_ADHOC_MEETING"
+    nonisolated private static let adHocRecordActionIdentifier = "ADHOC_RECORD"
+    nonisolated private static let adHocNotAMeetingActionIdentifier = "ADHOC_NOT_A_MEETING"
+    nonisolated private static let adHocNotificationID = "adhoc-meeting-detection"
 
     @MainActor
     private static func makeMeetingCategory() -> UNNotificationCategory {
@@ -345,6 +428,27 @@ final class MeetingReminderService: NSObject, UNUserNotificationCenterDelegate {
             ],
             intentIdentifiers: [],
             options: []
+        )
+    }
+
+    @MainActor
+    private static func makeAdHocCategory() -> UNNotificationCategory {
+        UNNotificationCategory(
+            identifier: adHocCategoryIdentifier,
+            actions: [
+                UNNotificationAction(
+                    identifier: adHocRecordActionIdentifier,
+                    title: "Record in Spool",
+                    options: [.foreground]
+                ),
+                UNNotificationAction(
+                    identifier: adHocNotAMeetingActionIdentifier,
+                    title: "Not a Meeting",
+                    options: []
+                )
+            ],
+            intentIdentifiers: [],
+            options: [.customDismissAction]
         )
     }
 }

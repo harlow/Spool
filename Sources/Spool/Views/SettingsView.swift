@@ -147,6 +147,11 @@ struct SettingsView: View {
                 Text("Spool scans your Google Calendar agenda and shows a join-and-record reminder about two minutes before meetings with join links.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+
+                Toggle("Detect ad-hoc meetings", isOn: $settings.adHocMeetingDetectionEnabled)
+                Text("Monitors microphone usage and running meeting apps (Zoom, Teams, FaceTime, etc.) to detect calls not on your calendar.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
 
             Section("Status") {

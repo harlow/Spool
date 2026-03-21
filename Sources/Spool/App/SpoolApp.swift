@@ -32,6 +32,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 model.windowCoordinator.showOnboarding()
             } else {
                 model.meetingReminderService.start()
+                model.adHocMeetingDetector.start()
                 await model.calendarService.refreshStatus(force: false)
                 NSApp.setActivationPolicy(.accessory)
             }
